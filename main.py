@@ -1,8 +1,8 @@
-import os
+import os # <-- ADDED THIS LINE
 import re
 import base64
 import requests
-import Levenshtein
+import Levenshtein  # <-- KEPT THIS LINE AS YOU REQUESTED
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from fastapi import FastAPI, Request, Response
@@ -22,6 +22,7 @@ app = FastAPI()
 
 # --- 1. NEW: Firebase Admin Setup ---
 try:
+    # This will use the "Secret File" on Render
     cred = credentials.Certificate("firebase-service-key.json")
     firebase_admin.initialize_app(cred)
     db = firestore.client()
@@ -31,16 +32,19 @@ except Exception as e:
     db = None
 
 # --- 2. NEW: Session Cookie Setup (replaces SessionMiddleware) ---
-# !!! EDIT THIS SECRET KEY !!!
-SESSION_SECRET_KEY = "a7s8d6f9a8s7df6a8s7d6f9a87s6df" # I've put a random one here for you
+# --- THIS IS THE FIX: Reads your key from Render's Environment ---
+SESSION_SECRET_KEY = os.environ.get("SESSION_SECRET_KEY", "default_secret_key_for_local_testing")
+if SESSION_SECRET_KEY == "default_secret_key_for_local_testing":
+    print("Warning: SESSION_SECRET_KEY not set. Using default (unsafe) key.")
 signer = URLSafeTimedSerializer(SESSION_SECRET_KEY)
 SESSION_COOKIE_NAME = "phishshield_session"
 
 # --- 3. Google OAuth Setup (Same as before) ---
-CLIENT_SECRETS_FILE = "client_secret.json"
+CLIENT_SECRETS_FILE = "client_secret.json" # This will use the "Secret File" on Render
 
 # !!! THIS LINE IS CRITICAL - It MUST match your Google Console and Render URL !!!
-REDIRECT_URI = "https://phishshield-aa8.onrender.com/auth/callback" 
+# Your new URL is "aai6"
+REDIRECT_URI = "https://phishshield-aai6.onrender.com/auth/callback" 
 
 SCOPES = sorted([
     'openid',
@@ -56,7 +60,7 @@ try:
         redirect_uri=REDIRECT_URI
     )
 except FileNotFoundError:
-    print("CRITICAL ERROR: 'client_secret.json' not found. Please download it from your Google Cloud Console.")
+    print("CRITICAL ERROR: 'client_secret.json' not found. This app will fail on Render if the 'Secret File' is not set.")
     flow = None
 
 # --- 4. College-Specific & API Keys (Same as before) ---
@@ -64,12 +68,17 @@ COLLEGE_TRUSTED_DOMAINS = {
     "srmist.edu.in",
     # "srm-portal.com", 
 }
-# !!! EDIT THIS API KEY !!!
-SAFE_BROWSING_API_KEY = "PASTE_YOUR_API_KEY_HERE" # Make sure your key is pasted here
+
+# --- THIS IS THE FIX: Reads your key from Render's Environment ---
+SAFE_BROWSING_API_KEY = os.environ.get("SAFE_BROWSING_API_KEY")
+if not SAFE_BROWSING_API_KEY:
+    print("Warning: SAFE_BROWSING_API_KEY not set. External API checks will fail.")
+# --- END OF FIX ---
+
 SAFE_BROWSING_URL = "https://safebrowsing.googleapis.com/v4/threatMatches:find"
 
 
-# --- 5. Helper Functions (Mostly unchanged) ---
+# --- 5. Helper Functions (Unchanged) ---
 def get_domain_from_email(sender_email):
     match = re.search(r'<(.+?)>', sender_email)
     email = match.group(1) if match else sender_email.strip()
@@ -121,9 +130,12 @@ def extract_links_and_text(body_data):
         print(f"Error decoding body or extracting links: {e}")
         return []
 
-# --- 6. Security Analysis Functions (UNCHANGED) ---
+# --- 6. Security Analysis Functions (INCLUDES Levenshtein) ---
 def check_external_apis(links_to_check):
-    if not links_to_check: return {}
+    if not links_to_check or not SAFE_BROWSING_API_KEY: 
+        if not SAFE_BROWSING_API_KEY: print("Warning: SAFE_BROWSING_API_KEY is not set. Skipping API check.")
+        return {}
+    
     payload = {
         "client": {"clientId": "phishshield", "clientVersion": "2.0.0"},
         "threatInfo": {
@@ -150,18 +162,29 @@ def check_external_apis(links_to_check):
     return api_threats
 
 def check_sender_impersonation(sender_email, sender_name, sender_domain):
+    """
+    This is our "Secret Sauce" check for college-specific impersonation.
+    (INCLUDES Levenshtein "typo-catcher" logic)
+    """
     if not sender_domain: return None
+    
+    # Check 1: Is this a VERIFIED sender from our trusted list?
     if sender_domain in COLLEGE_TRUSTED_DOMAINS:
         return {"status": "verified", "reason": f"College Verified: Sender is from trusted domain '{sender_domain}'."}
+    
+    # Check 2: Is this an IMPERSONATION attempt (typo-catching)?
     for trusted_domain in COLLEGE_TRUSTED_DOMAINS:
         dist = Levenshtein.distance(sender_domain, trusted_domain)
-        if 0 < dist <= 2:
+        if 0 < dist <= 2: # 1 or 2 typos
             return {"status": "danger", "reason": f"Impersonation Alert: Sender domain '{sender_domain}' is suspiciously similar to trusted domain '{trusted_domain}'."}
+
+    # Check 3: Is the SENDER NAME impersonating the college?
     college_name_keywords = ["srmist", "srm", "registrar", "it support", "admin"]
     for keyword in college_name_keywords:
         if keyword in sender_name.lower():
             return {"status": "danger", "reason": f"Impersonation Alert: Sender name is '{sender_name}' but is from untrusted domain '{sender_domain}'."}
-    return None
+            
+    return None # No impersonation detected
 
 def check_link_mismatch_and_ips(links_data):
     for link_text, link_url in links_data:
@@ -177,9 +200,8 @@ def check_link_mismatch_and_ips(links_data):
             return {"status": "danger", "reason": f"Link-Text Mismatch: Link says it's '{link_text_domain}' but actually goes to '{link_url_domain}'."}
     return None
 
-# --- 7. NEW: Auth Helper Function ---
+# --- 7: Auth Helper Function ---
 async def get_current_user_id(request: Request):
-    """Reads and verifies the session cookie to get the user's ID."""
     session_cookie = request.cookies.get(SESSION_COOKIE_NAME)
     if not session_cookie:
         return None
@@ -189,17 +211,14 @@ async def get_current_user_id(request: Request):
     except (BadSignature, SignatureExpired):
         return None
 
-# --- 8. FastAPI Endpoints (Rewritten for Firestore) ---
-
+# --- 8. FastAPI Endpoints (Includes all fixes) ---
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
-    """Serves the main HTML page (unchanged)."""
     with open("phishshield.html") as f:
         return HTMLResponse(content=f.read(), status_code=200)
 
 @app.get("/api/get_login_url")
 async def get_login_url():
-    """Generates the Google login URL (mostly unchanged)."""
     if not flow:
         return JSONResponse({'error': 'OAuth client_secret.json not found'}, status_code=500)
     authorization_url, state = flow.authorization_url(
@@ -212,7 +231,6 @@ async def get_login_url():
 
 @app.get("/api/check_auth", response_class=JSONResponse)
 async def check_auth(request: Request):
-    """Checks if the user has a valid session cookie."""
     user_id = await get_current_user_id(request)
     if user_id:
         return JSONResponse({'logged_in': True})
@@ -220,9 +238,6 @@ async def check_auth(request: Request):
 
 @app.get("/auth/callback")
 async def auth_callback(request: Request):
-    """
-    This is the redirect URI.
-    """
     state = request.cookies.get("oauth_state")
     if not state:
         return RedirectResponse(url='/')
@@ -231,30 +246,27 @@ async def auth_callback(request: Request):
         return RedirectResponse(url='/?error=server_not_configured')
 
     try:
-        # --- THIS IS THE FINAL FIX ---
-        # We manually rebuild the URL to guarantee it's HTTPS
-        # This fixes the (insecure_transport) error when behind Render's proxy
+        # --- THE HTTPS FIX ---
         auth_response_url = str(request.url)
         if auth_response_url.startswith("http://"):
             auth_response_url = "https://" + auth_response_url[7:]
         # --- END OF FIX ---
 
-        # 1. Get Google token
         flow.fetch_token(
-            authorization_response=auth_response_url, # Use our FIXED URL
+            authorization_response=auth_response_url, 
             state=state
         )
         creds = flow.credentials
-
-        # 2. Get Google User ID
         token_request = google_requests.Request()
         
+        # --- THE CLOCK SKEW FIX ---
         id_info = id_token.verify_oauth2_token(
             creds.id_token, 
             token_request, 
             flow.client_config['client_id'],
             clock_skew_in_seconds=10 
         )
+        # --- END OF FIX ---
         
         user_id = id_info['sub']
         user_email = id_info['email']
@@ -262,7 +274,6 @@ async def auth_callback(request: Request):
         if not creds.refresh_token:
             print("Warning: No refresh_token found. User may need to re-consent.")
         
-        # 3. Save Refresh Token to Firestore
         user_doc_ref = db.collection("users").document(user_id)
         user_data = {
             'email': user_email,
@@ -274,7 +285,6 @@ async def auth_callback(request: Request):
         user_doc_ref.set(user_data, merge=True)
         print(f"User {user_id} ({user_email}) data saved to Firestore.")
 
-        # 4. Set our own session cookie
         session_cookie = signer.dumps(user_id)
         response = RedirectResponse(url='/')
         response.set_cookie(key=SESSION_COOKIE_NAME, value=session_cookie, httponly=True, max_age=86400 * 14)
@@ -288,14 +298,12 @@ async def auth_callback(request: Request):
 
 @app.get("/api/logout")
 async def logout():
-    """Logs the user out by clearing the session cookie."""
     response = JSONResponse({'logged_out': True})
     response.delete_cookie(SESSION_COOKIE_NAME)
     return response
 
 @app.get("/api/get_emails")
 async def get_emails(request: Request):
-    """The main endpoint to fetch and analyze emails."""
     
     user_id = await get_current_user_id(request)
     if not user_id:
@@ -305,7 +313,6 @@ async def get_emails(request: Request):
         return JSONResponse({'error': 'Server not configured.'}, status_code=500)
 
     try:
-        # 2. Get refresh_token from Firestore
         user_doc = db.collection("users").document(user_id).get()
         if not user_doc.exists:
             return JSONResponse({'error': 'User not found in database. Please re-login.'}, status_code=401)
@@ -314,7 +321,6 @@ async def get_emails(request: Request):
         if not refresh_token:
             return JSONResponse({'error': 'No refresh token found. Please log out and log back in to re-grant permission.'}, status_code=403)
             
-        # 3. Rebuild Google Credentials
         creds = Credentials(
             token=None,
             refresh_token=refresh_token,
@@ -325,10 +331,7 @@ async def get_emails(request: Request):
         )
         
         creds.refresh(google_requests.Request())
-        
         service = build('gmail', 'v1', credentials=creds)
-        
-        # 5. Fetch email list
         results = service.users().messages().list(userId='me', maxResults=20, labelIds=['INBOX']).execute()
         messages = results.get('messages', [])
         
@@ -338,7 +341,6 @@ async def get_emails(request: Request):
         all_links_to_check = set()
         email_details = []
 
-        # 6. First Pass: Get all links
         for msg_summary in messages:
             msg = service.users().messages().get(userId='me', id=msg_summary['id'], format='full').execute()
             payload = msg.get('payload', {})
@@ -361,15 +363,12 @@ async def get_emails(request: Request):
             
             for _, link_url in email_data['links_data']:
                 all_links_to_check.add(link_url)
-
             email_details.append(email_data)
 
-        # 7. Batch API Call
         print(f"Checking {len(all_links_to_check)} unique links against external APIs...")
         api_threats = check_external_apis(list(all_links_to_check))
         print(f"Found {len(api_threats)} threats from APIs.")
 
-        # 8. Second Pass: Analyze each email
         analyzed_emails = []
         for email in email_details:
             analysis = {"status": "safe", "reason": "This email passed all checks."}

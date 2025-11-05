@@ -6,12 +6,10 @@
     <title>PhishShield</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Use Inter font */
         body {
             font-family: 'Inter', sans-serif;
             background-color: #111827; /* Dark background */
         }
-        /* Custom styles */
         .card {
             background-color: #1f2937; /* Dark card background */
             border-radius: 0.75rem;
@@ -32,64 +30,84 @@
             background-color: #374151; /* Darker hover */
         }
         
-        /* NEW: Style for the Verified blue shield */
-        .status-verified {
-            color: #3b82f6; /* Blue-500 */
-        }
-        .status-safe {
-            color: #22c55e; /* Green-500 */
-        }
-        .status-danger {
-            color: #ef4444; /* Red-500 */
-        }
+        .status-verified { color: #3b82f6; } /* Blue-500 */
+        .status-safe { color: #22c55e; } /* Green-500 */
+        .status-danger { color: #ef4444; } /* Red-500 */
 
-        /* Tooltip styles */
-        .tooltip-container {
-            position: relative;
-        }
+        /* Tooltip styles (unchanged) */
+        .tooltip-container { position: relative; }
         .tooltip {
-            visibility: hidden;
-            width: 240px;
-            background-color: #111827;
-            color: #fff;
-            text-align: center;
-            border-radius: 0.375rem;
-            padding: 0.5rem;
-            position: absolute;
-            z-index: 10;
-            bottom: 125%;
-            left: 50%;
-            margin-left: -120px;
-            opacity: 0;
-            transition: opacity 0.3s;
-            font-size: 0.75rem;
-            font-weight: 400;
-            line-height: 1.25;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            visibility: hidden; width: 240px; background-color: #111827;
+            color: #fff; text-align: center; border-radius: 0.375rem;
+            padding: 0.5rem; position: absolute; z-index: 10;
+            bottom: 125%; left: 50%; margin-left: -120px;
+            opacity: 0; transition: opacity 0.3s; font-size: 0.75rem;
+            font-weight: 400; line-height: 1.25; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
         .tooltip::after {
-            content: "";
-            position: absolute;
-            top: 100%;
-            left: 50%;
-            margin-left: -5px;
-            border-width: 5px;
-            border-style: solid;
+            content: ""; position: absolute; top: 100%; left: 50%;
+            margin-left: -5px; border-width: 5px; border-style: solid;
             border-color: #111827 transparent transparent transparent;
         }
-        .tooltip-container:hover .tooltip {
-            visibility: visible;
-            opacity: 1;
+        .tooltip-container:hover .tooltip { visibility: visible; opacity: 1; }
+
+        /* --- NEW: Notification Bell Styles --- */
+        .notification-bell {
+            position: relative;
+            cursor: pointer;
         }
+        .notification-count {
+            position: absolute;
+            top: -5px;
+            right: -10px;
+            background-color: #ef4444; /* Red-500 */
+            color: white;
+            font-size: 0.75rem;
+            font-weight: 600;
+            border-radius: 9999px;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+            padding-top: 1px;
+            transition: all 0.2s;
+            transform: scale(0); /* Hidden by default */
+        }
+        .notification-count.active {
+            transform: scale(1); /* Show when count > 0 */
+        }
+        .notification-icon.active {
+            color: #f87171; /* Red-400 */
+            animation: ring 1.5s ease-in-out infinite;
+        }
+        .alerts-dropdown {
+            position: absolute;
+            top: 125%;
+            right: 0;
+            width: 320px;
+            background-color: #374151; /* Gray-700 */
+            border-radius: 0.5rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2), 0 4px 6px -2px rgba(0, 0, 0, 0.1);
+            z-index: 50;
+            overflow: hidden;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        @keyframes ring {
+            0%, 100% { transform: rotate(0); }
+            10%, 30%, 50%, 70%, 90% { transform: rotate(-10deg); }
+            20%, 40%, 60%, 80% { transform: rotate(10deg); }
+        }
+
     </style>
     <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
 </head>
 <body class="flex items-center justify-center min-h-screen p-4">
 
-    <!-- Main Container -->
     <div id="app-container" class="w-full max-w-lg">
 
-        <!-- Login Page -->
         <div id="login-page" class="card p-8 md:p-12 text-center">
             <h1 class="text-3xl md:text-4xl font-bold text-gray-100 mb-4">Welcome to PhishShield</h1>
             <p class="text-lg text-gray-400 mb-8">Secure your college inbox from phishing attacks.</p>
@@ -99,26 +117,41 @@
             </button>
         </div>
 
-        <!-- Inbox Page -->
         <div id="inbox-page" class="card hidden">
-            <!-- Header -->
             <div class="p-4 md:p-6 border-b border-gray-700 flex justify-between items-center">
                 <h1 class="text-xl font-bold text-gray-100">Secure your Mail with PhishShield</h1>
-                <button id="logout-btn" class="text-sm font-medium text-indigo-400 hover:text-indigo-300">Logout</button>
-            </div>
+                
+                <div class="flex items-center space-x-4">
+                    <div class="relative">
+                        <div id="notification-bell" class="notification-bell text-gray-400 hover:text-white transition">
+                            <svg id="notification-icon" class="w-6 h-6 notification-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.017 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+                            </svg>
+                            <span id="notification-count" class="notification-count">0</span>
+                        </div>
+                        
+                        <div id="alerts-dropdown" class="alerts-dropdown hidden">
+                            <div class="p-3 border-b border-gray-600">
+                                <h3 class="text-sm font-semibold text-white">Recent Alerts</h3>
+                            </div>
+                            <div id="alert-list" class="divide-y divide-gray-600">
+                                </div>
+                        </div>
+                    </div>
+                    
+                    <button id="logout-btn" class="text-sm font-medium text-indigo-400 hover:text-indigo-300">Logout</button>
+                </div>
+                 </div>
 
-            <!-- Loading Spinner -->
             <div id="loading-spinner" class="p-8 text-center">
-                <div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent align-[-0.125em] text-indigo-400 motion-reduce:animate-[spin_1.5s_linear_infinite]" role="status">
+                <div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent text-indigo-400 motion-reduce:animate-[spin_1.5s_linear_infinite]" role="status">
                     <span class="!absolute !-m-px !h-px !w-px !overflow-hidden !whitespace-nowrap !border-0 !p-0 ![clip:rect(0,0,0,0)]">Loading...</span>
                 </div>
                 <p class="mt-4 text-gray-400">Analyzing your inbox... This may take a moment.</p>
             </div>
 
-            <!-- Email List -->
             <div id="email-list" class="hidden divide-y divide-gray-700">
-                <!-- Email items will be injected here by JavaScript -->
-            </div>
+                </div>
         </div>
 
     </div>
@@ -132,8 +165,19 @@
         const loadingSpinner = document.getElementById('loading-spinner');
         const emailList = document.getElementById('email-list');
 
+        // --- NEW: Alert DOM Elements ---
+        const notificationBell = document.getElementById('notification-bell');
+        const notificationIcon = document.getElementById('notification-icon');
+        const notificationCount = document.getElementById('notification-count');
+        const alertsDropdown = document.getElementById('alerts-dropdown');
+        const alertList = document.getElementById('alert-list');
+        
+        // --- NEW: State variable ---
+        let alertPollingInterval = null; // To hold the interval ID
+
         // --- Event Listeners ---
         document.addEventListener('DOMContentLoaded', checkLoginStatus);
+        
         loginBtn.addEventListener('click', async () => {
             try {
                 const response = await fetch('/api/get_login_url');
@@ -145,9 +189,18 @@
                 console.error('Error getting login URL:', error);
             }
         });
+        
         logoutBtn.addEventListener('click', async () => {
             await fetch('/api/logout');
+            if (alertPollingInterval) {
+                clearInterval(alertPollingInterval); // Stop polling on logout
+            }
             showLoginPage();
+        });
+
+        // --- NEW: Toggle alerts dropdown ---
+        notificationBell.addEventListener('click', () => {
+            alertsDropdown.classList.toggle('hidden');
         });
 
         // --- Functions ---
@@ -159,6 +212,12 @@
                 if (data.logged_in) {
                     showInboxPage();
                     fetchAndRenderEmails();
+                    
+                    // --- NEW: Fetch alerts and start polling ---
+                    fetchAndRenderAlerts(); // Fetch immediately on load
+                    // Poll for new alerts every 15 seconds
+                    alertPollingInterval = setInterval(fetchAndRenderAlerts, 15000); 
+                    
                 } else {
                     showLoginPage();
                 }
@@ -178,6 +237,7 @@
             inboxPage.classList.remove('hidden');
             loadingSpinner.classList.remove('hidden');
             emailList.classList.add('hidden');
+            alertsDropdown.classList.add('hidden'); // Ensure dropdown is hidden on load
         }
 
         async function fetchAndRenderEmails() {
@@ -203,11 +263,66 @@
             }
         }
 
+        // --- NEW: Function to fetch and render alerts ---
+        async function fetchAndRenderAlerts() {
+            try {
+                const response = await fetch('/api/get_alerts');
+                if (response.status === 401) {
+                    // Don't log out, just stop polling
+                    if (alertPollingInterval) clearInterval(alertPollingInterval);
+                    return;
+                }
+                const data = await response.json();
+                if (data.error) throw new Error(data.error);
+                
+                const alerts = data.alerts || [];
+                
+                // Update notification count
+                notificationCount.textContent = alerts.length;
+                if (alerts.length > 0) {
+                    notificationCount.classList.add('active');
+                    notificationIcon.classList.add('active');
+                } else {
+                    notificationCount.classList.remove('active');
+                    notificationIcon.classList.remove('active');
+                }
+                
+                // Render alerts in dropdown
+                if (alerts.length === 0) {
+                    alertList.innerHTML = `<div class="p-4 text-center text-sm text-gray-400">No new alerts.</div>`;
+                    return;
+                }
+                
+                alertList.innerHTML = alerts.map(alert => {
+                    const subject = (alert.subject || 'No Subject').replace(/</g, "&lt;");
+                    const reason = (alert.reason || 'No reason').replace(/</g, "&lt;");
+                    const sender = (alert.sender || 'Unknown Sender').replace(/</g, "&lt;");
+                    
+                    return `
+                        <div class="p-3 cursor-default">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="text-sm font-semibold text-red-400">DANGER</span>
+                                </div>
+                            <div class="text-xs font-medium text-white truncate" title="${subject}">${subject}</div>
+                            <div class="text-xs text-gray-300 truncate" title="${sender}">${sender}</div>
+                            <p class="text-xs text-gray-400 mt-1">${reason}</p>
+                        </div>
+                    `;
+                }).join('');
+
+            } catch (error) {
+                console.error('Error fetching alerts:', error);
+                alertList.innerHTML = `<div class="p-4 text-center text-sm text-red-400">Could not load alerts.</div>`;
+            }
+        }
+
+
+        // (All other helper functions: getSenderInitial, getAvatarColor, renderEmailList... are unchanged)
+
         function getSenderInitial(sender) {
             try {
                 let name = sender.split('<')[0].trim().replace(/"/g, '');
                 if (name) return name[0].toUpperCase();
-                // Fallback if no name
                 let email = sender.split('<')[1].split('>')[0];
                 return email[0].toUpperCase() || '?';
             } catch (e) {
@@ -241,7 +356,6 @@
                                 <path d="M14.778.085A.5.5 0 0 1 15 .5V8a.5.5 0 0 1-.5.5h-5a.5.5 0 0 1-.5-.5V.5a.5.5 0 0 1 .5-.5h5zM2 2.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-4zM1 1.5a.5.5 0 0 1 .5-.5h.5a.5.5 0 0 1 .5.5v13a.5.5 0 0 1-.5.5h-.5a.5.5 0 0 1-.5-.5v-13z"/>
                             </svg>`;
                         break;
-                    // --- NEW CASE ---
                     case 'verified':
                         statusClass = 'status-verified';
                         iconSvg = `
@@ -267,19 +381,16 @@
 
                 return `
                     <div class="email-item flex items-center p-4 cursor-default">
-                        <!-- Avatar -->
                         <div class="flex-shrink-0 w-10 h-10 rounded-full ${avatarColor} flex items-center justify-center">
                             <span class="text-xl font-medium text-white">${initial}</span>
                         </div>
                         
-                        <!-- Email Content -->
                         <div class="ml-4 min-w-0 flex-1">
                             <div class="text-sm font-medium text-gray-100 truncate">${senderName}</div>
                             <div class="text-sm text-gray-300 truncate">${subject}</div>
                             <div class="text-xs text-gray-400 truncate">${snippet}</div>
                         </div>
 
-                        <!-- Status Icon & Tooltip -->
                         <div class="tooltip-container ml-4 flex-shrink-0 ${statusClass}">
                             ${iconSvg}
                             <div class="tooltip">${reason}</div>

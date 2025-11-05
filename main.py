@@ -5,8 +5,8 @@ import requests
 import Levenshtein
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
-import json # <-- NEW IMPORT
-from fastapi import FastAPI, Request, Response, BackgroundTasks # <-- NEW IMPORT
+import json
+from fastapi import FastAPI, Request, Response, BackgroundTasks # <-- Make sure 'Response' is imported
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from google_auth_oauthlib.flow import Flow
@@ -39,13 +39,13 @@ SESSION_COOKIE_NAME = "phishshield_session"
 # --- 3. Google OAuth Setup ---
 CLIENT_SECRETS_FILE = "client_secret.json" 
 REDIRECT_URI = "https://phishshield-aai6.onrender.com/auth/callback" 
-TOPIC_NAME = "projects/phishshield-main-477212/topics/gmail-push" # <-- NEW: Your "Pager" name
+TOPIC_NAME = "projects/phishshied-main-477212/topics/gmail-push" # <-- CRITICAL: MAKE SURE THIS IS *YOUR* TOPIC NAME
 
 SCOPES = sorted([
     'openid',
     'https://www.googleapis.com/auth/userinfo.email',
     'https://www.googleapis.com/auth/userinfo.profile',
-    'https://www.googleapis.com/auth/gmail.readonly' # This scope is enough for watch()
+    'https://www.googleapis.com/auth/gmail.readonly'
 ])
 
 try:
@@ -103,7 +103,7 @@ def extract_links_and_text(body_data):
             link_text = a_tag.get_text().strip()
             if link_url.startswith('http'):
                 links_data.append((link_text, link_url))
-        raw_links = re.findall(r'https://?[^\s"<>\']+', decoded_data)
+        raw_links = re.findall(r'https?://[^\s"<>\']+', decoded_data)
         for raw_link in raw_links:
             links_data.append(("Raw Link", raw_link))
         return list(set(links_data))
@@ -178,24 +178,17 @@ async def get_current_user_id(request: Request):
         return user_id
     except (BadSignature, SignatureExpired):
         return None
-
-# --- NEW: Helper function to start the Gmail watch ---
 def start_watch_on_gmail(creds):
-    """
-    Tells Gmail to start sending "pings" for this user to our Pub/Sub topic.
-    """
     try:
         service = build('gmail', 'v1', credentials=creds)
         request = {
-            'labelIds': ['INBOX'], # Watch the Inbox
-            'topicName': TOPIC_NAME  # Send pings to our "pager"
+            'labelIds': ['INBOX'],
+            'topicName': TOPIC_NAME
         }
-        # This is the one-time API call that "subscribes" the user
         response = service.users().watch(userId='me', body=request).execute()
         print(f"Gmail watch started successfully for user. History ID: {response['historyId']}")
         return response
     except HttpError as error:
-        # This will happen if the watch is already active, which is fine.
         print(f"An error occurred starting the watch: {error}")
         return None
 
@@ -211,7 +204,7 @@ async def get_login_url():
         return JSONResponse({'error': 'OAuth client_secret.json not found'}, status_code=500)
     authorization_url, state = flow.authorization_url(
         access_type='offline',
-        prompt='consent' # This is CRITICAL to get a refresh_token
+        prompt='consent'
     )
     response = JSONResponse({'url': authorization_url})
     response.set_cookie(key="oauth_state", value=state, max_age=600, httponly=True)
@@ -226,10 +219,6 @@ async def check_auth(request: Request):
 
 @app.get("/auth/callback")
 async def auth_callback(request: Request):
-    """
-    This is the redirect URI.
-    *** UPDATED: Now also starts the Gmail watch ***
-    """
     state = request.cookies.get("oauth_state")
     if not state:
         return RedirectResponse(url='/')
@@ -238,11 +227,9 @@ async def auth_callback(request: Request):
         return RedirectResponse(url='/?error=server_not_configured')
 
     try:
-        # --- THE HTTPS FIX ---
         auth_response_url = str(request.url)
         if auth_response_url.startswith("http://"):
             auth_response_url = "https://" + auth_response_url[7:]
-        # --- END OF FIX ---
 
         flow.fetch_token(
             authorization_response=auth_response_url, 
@@ -251,7 +238,6 @@ async def auth_callback(request: Request):
         creds = flow.credentials
         token_request = google_requests.Request()
         
-        # --- THE CLOCK SKEW FIX ---
         id_info = id_token.verify_oauth2_token(
             creds.id_token, 
             token_request, 
@@ -276,10 +262,7 @@ async def auth_callback(request: Request):
         user_doc_ref.set(user_data, merge=True)
         print(f"User {user_id} ({user_email}) data saved to Firestore.")
 
-        # --- NEW: START THE GMAIL WATCH ---
-        # After we've saved the token, we tell Gmail to start "watching" this user.
         start_watch_on_gmail(creds)
-        # --- END OF NEW PART ---
 
         session_cookie = signer.dumps(user_id)
         response = RedirectResponse(url='/')
@@ -297,9 +280,7 @@ async def logout():
     response = JSONResponse({'logged_out': True})
     response.delete_cookie(SESSION_COOKIE_NAME)
     return response
-
-# ... all your /api/get_emails and other functions are still here, unchanged ...
-# (I've collapsed them for brevity, but they are identical to the last file)
+    
 @app.get("/api/get_emails")
 async def get_emails(request: Request):
     user_id = await get_current_user_id(request)
@@ -383,15 +364,12 @@ async def get_emails(request: Request):
         print(f'A general error occurred: {e}')
         return JSONResponse({'error': f'An error occurred: {e}'}, status_code=500)
 
-# --- 9. BRAND NEW: The Webhook "Ears" Endpoint ---
 
+# --- 9. BRAND NEW: The Webhook "Ears" Endpoint ---
+# --- THIS IS THE FINAL FIX ---
+# This is the "heavy lifting" function that runs in the background.
 async def process_webhook(payload: dict):
-    """
-    This is the "heavy lifting" function that runs in the background.
-    For now, it just decodes and prints the ping.
-    """
     try:
-        # 1. Decode the message from Pub/Sub
         message_data = payload.get('message', {}).get('data')
         if not message_data:
             print("Webhook received, but no message data.")
@@ -408,18 +386,8 @@ async def process_webhook(payload: dict):
         print(f"History ID: {history_id}")
         print("------------------------------------------")
         
-        # --- FUTURE (Step 3E) ---
-        # This is where we will add the code to:
-        # 1. Find this user in Firestore by their email_address
-        # 2. Use their refresh_token to build a new Gmail service
-        # 3. Call service.users().history().list() to get the *new* email
-        # 4. Run our *full analysis* on that new email
-        # 5. If it's 'danger', save it to a new 'notifications' collection
-        # 6. Send the Web Push Notification
-        
     except Exception as e:
         print(f"Error processing webhook: {e}")
-
 
 @app.post("/api/gmail-webhook")
 async def gmail_webhook_receiver(request: Request, tasks: BackgroundTasks):
@@ -429,17 +397,17 @@ async def gmail_webhook_receiver(request: Request, tasks: BackgroundTasks):
     """
     print("Webhook ping received from Google...")
     try:
-        # Get the request body as JSON
         payload = await request.json()
-        
-        # Add the *real* work to a background task
-        # This lets us return 204 immediately while the work runs
         tasks.add_task(process_webhook, payload)
         
-        # Return "Success, No Content"
-        return JSONResponse(status_code=204)
+        # --- THE FIX ---
+        # Before: return JSONResponse(status_code=204) (This is WRONG)
+        # After: return Response(status_code=204) (This is CORRECT)
+        # We must return a *blank* Response, not a JSONResponse
+        return Response(status_code=204)
         
     except Exception as e:
         print(f"Error in webhook receiver: {e}")
-        # If something goes wrong, still tell Google "OK" so it doesn't retry
-        return JSONResponse(status_code=204)
+        # --- THE FIX ---
+        # Same fix here. Must be a blank Response.
+        return Response(status_code=204)

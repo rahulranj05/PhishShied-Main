@@ -38,7 +38,7 @@ SESSION_COOKIE_NAME = "phishshield_session"
 
 # --- 3. Google OAuth Setup (Same as before) ---
 CLIENT_SECRETS_FILE = "client_secret.json"
-REDIRECT_URI = "http://localhost:8000/auth/callback"
+REDIRECT_URI = "https://phishshield-aa8.onrender.com/auth/callback"
 SCOPES = sorted([
     'openid',
     'https://www.googleapis.com/auth/userinfo.email',
@@ -404,4 +404,5 @@ async def get_emails(request: Request):
         return JSONResponse({'error': str(error)}, status_code=500)
     except Exception as e:
         print(f'A general error occurred: {e}')
+
         return JSONResponse({'error': f'An error occurred: {e}'}, status_code=500)

@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PhishShield</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Use Inter font */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #111827; /* Dark background */
+        }
+        /* Custom styles */
+        .card {
+            background-color: #1f2937; /* Dark card background */
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        .btn-primary {
+            background-color: #4f46e5;
+            color: white;
+            font-weight: 600;
+            border-radius: 0.5rem;
+            padding: 0.75rem 1.5rem;
+            transition: background-color 0.2s;
+        }
+        .btn-primary:hover {
+            background-color: #4338ca;
+        }
+        .email-item:hover {
+            background-color: #374151; /* Darker hover */
+        }
+        
+        /* NEW: Style for the Verified blue shield */
+        .status-verified {
+            color: #3b82f6; /* Blue-500 */
+        }
+        .status-safe {
+            color: #22c55e; /* Green-500 */
+        }
+        .status-danger {
+            color: #ef4444; /* Red-500 */
+        }
+
+        /* Tooltip styles */
+        .tooltip-container {
+            position: relative;
+        }
+        .tooltip {
+            visibility: hidden;
+            width: 240px;
+            background-color: #111827;
+            color: #fff;
+            text-align: center;
+            border-radius: 0.375rem;
+            padding: 0.5rem;
+            position: absolute;
+            z-index: 10;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -120px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-size: 0.75rem;
+            font-weight: 400;
+            line-height: 1.25;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .tooltip::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #111827 transparent transparent transparent;
+        }
+        .tooltip-container:hover .tooltip {
+            visibility: visible;
+            opacity: 1;
+        }
+    </style>
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+
+    <!-- Main Container -->
+    <div id="app-container" class="w-full max-w-lg">
+
+        <!-- Login Page -->
+        <div id="login-page" class="card p-8 md:p-12 text-center">
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-100 mb-4">Welcome to PhishShield</h1>
+            <p class="text-lg text-gray-400 mb-8">Secure your college inbox from phishing attacks.</p>
+            <button id="login-btn" class="btn-primary inline-flex items-center">
+                <svg class="w-5 h-5 mr-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48px" height="48px"><path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"/><path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"/><path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"/><path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.574l6.19,5.238C39.971,36.213,44,30.778,44,24C44,22.659,43.862,21.35,43.611,20.083z"/></svg>
+                Sign in with Google
+            </button>
+        </div>
+
+        <!-- Inbox Page -->
+        <div id="inbox-page" class="card hidden">
+            <!-- Header -->
+            <div class="p-4 md:p-6 border-b border-gray-700 flex justify-between items-center">
+                <h1 class="text-xl font-bold text-gray-100">Secure your Mail with PhishShield</h1>
+                <button id="logout-btn" class="text-sm font-medium text-indigo-400 hover:text-indigo-300">Logout</button>
+            </div>
+
+            <!-- Loading Spinner -->
+            <div id="loading-spinner" class="p-8 text-center">
+                <div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent align-[-0.125em] text-indigo-400 motion-reduce:animate-[spin_1.5s_linear_infinite]" role="status">
+                    <span class="!absolute !-m-px !h-px !w-px !overflow-hidden !whitespace-nowrap !border-0 !p-0 ![clip:rect(0,0,0,0)]">Loading...</span>
+                </div>
+                <p class="mt-4 text-gray-400">Analyzing your inbox... This may take a moment.</p>
+            </div>
+
+            <!-- Email List -->
+            <div id="email-list" class="hidden divide-y divide-gray-700">
+                <!-- Email items will be injected here by JavaScript -->
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // DOM Elements
+        const loginPage = document.getElementById('login-page');
+        const inboxPage = document.getElementById('inbox-page');
+        const loginBtn = document.getElementById('login-btn');
+        const logoutBtn = document.getElementById('logout-btn');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        const emailList = document.getElementById('email-list');
+
+        // --- Event Listeners ---
+        document.addEventListener('DOMContentLoaded', checkLoginStatus);
+        loginBtn.addEventListener('click', async () => {
+            try {
+                const response = await fetch('/api/get_login_url');
+                const data = await response.json();
+                if (data.url) {
+                    window.location.href = data.url;
+                }
+            } catch (error) {
+                console.error('Error getting login URL:', error);
+            }
+        });
+        logoutBtn.addEventListener('click', async () => {
+            await fetch('/api/logout');
+            showLoginPage();
+        });
+
+        // --- Functions ---
+
+        async function checkLoginStatus() {
+            try {
+                const response = await fetch('/api/check_auth');
+                const data = await response.json();
+                if (data.logged_in) {
+                    showInboxPage();
+                    fetchAndRenderEmails();
+                } else {
+                    showLoginPage();
+                }
+            } catch (error) {
+                console.error('Error checking auth status:', error);
+                showLoginPage();
+            }
+        }
+
+        function showLoginPage() {
+            loginPage.classList.remove('hidden');
+            inboxPage.classList.add('hidden');
+        }
+
+        function showInboxPage() {
+            loginPage.classList.add('hidden');
+            inboxPage.classList.remove('hidden');
+            loadingSpinner.classList.remove('hidden');
+            emailList.classList.add('hidden');
+        }
+
+        async function fetchAndRenderEmails() {
+            try {
+                const response = await fetch('/api/get_emails');
+                
+                if (response.status === 401) {
+                    await fetch('/api/logout');
+                    showLoginPage();
+                    return;
+                }
+                
+                const data = await response.json();
+                if (data.error) throw new Error(data.error);
+                renderEmailList(data.emails);
+
+            } catch (error) {
+                console.error('Error fetching emails:', error);
+                emailList.innerHTML = `<div class="p-4 text-center text-red-400">Error fetching emails: ${error.message}</div>`;
+            } finally {
+                loadingSpinner.classList.add('hidden');
+                emailList.classList.remove('hidden');
+            }
+        }
+
+        function getSenderInitial(sender) {
+            try {
+                let name = sender.split('<')[0].trim().replace(/"/g, '');
+                if (name) return name[0].toUpperCase();
+                // Fallback if no name
+                let email = sender.split('<')[1].split('>')[0];
+                return email[0].toUpperCase() || '?';
+            } catch (e) {
+                return '?';
+            }
+        }
+        
+        function getAvatarColor(initial) {
+            const colors = [
+                'bg-red-500', 'bg-yellow-500', 'bg-green-500', 'bg-blue-500', 
+                'bg-indigo-500', 'bg-purple-500', 'bg-pink-500', 'bg-orange-500', 'bg-teal-500'
+            ];
+            const charCode = initial.charCodeAt(0) || 0;
+            return colors[charCode % colors.length];
+        }
+
+        function renderEmailList(emails) {
+            if (emails.length === 0) {
+                emailList.innerHTML = '<div class="p-4 text-center text-gray-500">No emails found in your inbox.</div>';
+                return;
+            }
+
+            emailList.innerHTML = emails.map(email => {
+                let statusClass, iconSvg;
+
+                switch (email.status) {
+                    case 'danger':
+                        statusClass = 'status-danger';
+                        iconSvg = `
+                            <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 16 16">
+                                <path d="M14.778.085A.5.5 0 0 1 15 .5V8a.5.5 0 0 1-.5.5h-5a.5.5 0 0 1-.5-.5V.5a.5.5 0 0 1 .5-.5h5zM2 2.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-4zM1 1.5a.5.5 0 0 1 .5-.5h.5a.5.5 0 0 1 .5.5v13a.5.5 0 0 1-.5.5h-.5a.5.5 0 0 1-.5-.5v-13z"/>
+                            </svg>`;
+                        break;
+                    // --- NEW CASE ---
+                    case 'verified':
+                        statusClass = 'status-verified';
+                        iconSvg = `
+                            <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a.75.75 0 00-1.06-1.06L9 10.94l-1.72-1.72a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.06 0l4.25-4.25z" clip-rule="evenodd" />
+                            </svg>`;
+                        break;
+                    default: // 'safe'
+                        statusClass = 'status-safe';
+                        iconSvg = `
+                            <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 16 16">
+                                <path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/>
+                            </svg>`;
+                }
+                
+                const sender = email.sender.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                const senderName = sender.split('<')[0].trim().replace(/"/g, '') || 'Unknown';
+                const initial = getSenderInitial(sender);
+                const avatarColor = getAvatarColor(initial);
+                const subject = email.subject.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                const snippet = email.snippet.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                const reason = email.reason.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+                return `
+                    <div class="email-item flex items-center p-4 cursor-default">
+                        <!-- Avatar -->
+                        <div class="flex-shrink-0 w-10 h-10 rounded-full ${avatarColor} flex items-center justify-center">
+                            <span class="text-xl font-medium text-white">${initial}</span>
+                        </div>
+                        
+                        <!-- Email Content -->
+                        <div class="ml-4 min-w-0 flex-1">
+                            <div class="text-sm font-medium text-gray-100 truncate">${senderName}</div>
+                            <div class="text-sm text-gray-300 truncate">${subject}</div>
+                            <div class="text-xs text-gray-400 truncate">${snippet}</div>
+                        </div>
+
+                        <!-- Status Icon & Tooltip -->
+                        <div class="tooltip-container ml-4 flex-shrink-0 ${statusClass}">
+                            ${iconSvg}
+                            <div class="tooltip">${reason}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+    </script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2
+itsdangerous
+requests
+python-levenshtein
+beautifulsoup4
+firebase-admin

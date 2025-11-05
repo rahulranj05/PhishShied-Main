@@ -1,0 +1,11 @@
+# Python 'venv' folder
+# This folder is on your local machine, not the server
+venv/
+__pycache__/
+*.pyc
+
+# --- CRITICAL SECRETS ---
+# Do NOT upload your Google and Firebase key files.
+# We will add these to the server as "Secret Variables" later.
+client_secret.json
+firebase-service-key.json

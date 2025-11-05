@@ -6,7 +6,7 @@ import Levenshtein
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 import json
-import time  # <-- ADD THIS IMPORT
+import time  # <-- Make sure this import is here
 from fastapi import FastAPI, Request, Response, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
@@ -419,7 +419,40 @@ async def get_emails(request: Request):
         return JSONResponse({'error': f'An error occurred: {e}'}, status_code=500)
 
 
-# --- 10. NEW: The Webhook "Ears" Endpoint ---
+# --- 10. NEW: ALERTS ENDPOINT ---
+
+@app.get("/api/get_alerts")
+async def get_alerts(request: Request):
+    user_id = await get_current_user_id(request)
+    if not user_id:
+        return JSONResponse({'error': 'Not authenticated'}, status_code=401)
+    if not db:
+        return JSONResponse({'error': 'Server not configured'}, status_code=500)
+
+    try:
+        alerts_ref = db.collection("alerts")
+        
+        # Query for alerts for this user, newest first, limit to 10
+        query = alerts_ref.where("user_id", "==", user_id)\
+                          .order_by("timestamp", direction=firestore.Query.DESCENDING)\
+                          .limit(10)
+        
+        results = query.stream()
+        
+        alerts = []
+        for doc in results:
+            alert_data = doc.to_dict()
+            alert_data['id'] = doc.id # Add the document ID
+            alerts.append(alert_data)
+            
+        return JSONResponse({'alerts': alerts})
+
+    except Exception as e:
+        print(f"Error fetching alerts: {e}")
+        return JSONResponse({'error': str(e)}, status_code=500)
+
+
+# --- 11. The Webhook "Ears" Endpoint ---
 
 # This is the "heavy lifting" function that runs in the background.
 async def process_webhook(payload: dict):
@@ -447,7 +480,9 @@ async def process_webhook(payload: dict):
             return
         
         users_ref = db.collection("users")
-        query = users_ref.where("email", "==", email_address).limit(1).stream()
+        # --- FIXED QUERY SYNTAX ---
+        query = users_ref.where(field_path="email", op_string="==", value=email_address).limit(1).stream()
+        
         user_doc = next(query, None)
         
         if not user_doc:

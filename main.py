@@ -38,7 +38,10 @@ SESSION_COOKIE_NAME = "phishshield_session"
 
 # --- 3. Google OAuth Setup (Same as before) ---
 CLIENT_SECRETS_FILE = "client_secret.json"
-REDIRECT_URI = "https://phishshield-aa8.onrender.com/auth/callback"
+
+# !!! THIS LINE IS CRITICAL - It MUST match your Google Console and Render URL !!!
+REDIRECT_URI = "https://phishshield-aa8.onrender.com/auth/callback" 
+
 SCOPES = sorted([
     'openid',
     'https://www.googleapis.com/auth/userinfo.email',
@@ -62,7 +65,7 @@ COLLEGE_TRUSTED_DOMAINS = {
     # "srm-portal.com", 
 }
 # !!! EDIT THIS API KEY !!!
-SAFE_BROWSING_API_KEY = "AIzaSyAG2xVDximZsNuPafAiUNGKY0cu5pjFQH8" # Make sure your key is pasted here
+SAFE_BROWSING_API_KEY = "PASTE_YOUR_API_KEY_HERE" # Make sure your key is pasted here
 SAFE_BROWSING_URL = "https://safebrowsing.googleapis.com/v4/threatMatches:find"
 
 
@@ -228,9 +231,17 @@ async def auth_callback(request: Request):
         return RedirectResponse(url='/?error=server_not_configured')
 
     try:
+        # --- THIS IS THE FINAL FIX ---
+        # We manually rebuild the URL to guarantee it's HTTPS
+        # This fixes the (insecure_transport) error when behind Render's proxy
+        auth_response_url = str(request.url)
+        if auth_response_url.startswith("http://"):
+            auth_response_url = "https://" + auth_response_url[7:]
+        # --- END OF FIX ---
+
         # 1. Get Google token
         flow.fetch_token(
-            authorization_response=str(request.url),
+            authorization_response=auth_response_url, # Use our FIXED URL
             state=state
         )
         creds = flow.credentials
@@ -238,15 +249,12 @@ async def auth_callback(request: Request):
         # 2. Get Google User ID
         token_request = google_requests.Request()
         
-        # --- THIS IS THE LINE WE ARE CHANGING ---
-        # We are adding clock_skew_in_seconds=10 to allow for a 10-second difference.
         id_info = id_token.verify_oauth2_token(
             creds.id_token, 
             token_request, 
             flow.client_config['client_id'],
             clock_skew_in_seconds=10 
         )
-        # --- END OF CHANGE ---
         
         user_id = id_info['sub']
         user_email = id_info['email']
@@ -404,5 +412,4 @@ async def get_emails(request: Request):
         return JSONResponse({'error': str(error)}, status_code=500)
     except Exception as e:
         print(f'A general error occurred: {e}')
-
         return JSONResponse({'error': f'An error occurred: {e}'}, status_code=500)

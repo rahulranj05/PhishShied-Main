@@ -40,7 +40,7 @@ SESSION_COOKIE_NAME = "phishshield_session"
 # --- 3. Google OAuth Setup ---
 CLIENT_SECRETS_FILE = "client_secret.json" 
 REDIRECT_URI = "https://phishshield-aai6.onrender.com/auth/callback" 
-TOPIC_NAME = "projects/phishshied-main-477212/topics/gmail-push" # <-- CRITICAL: MAKE SURE THIS IS *YOUR* TOPIC NAME
+TOPIC_NAME = "projects/phishshield-main-477212/topics/gmail-push" # <-- CRITICAL: MAKE SURE THIS IS *YOUR* TOPIC NAME
 
 SCOPES = sorted([
     'openid',
@@ -599,3 +599,4 @@ async def gmail_webhook_receiver(request: Request, tasks: BackgroundTasks):
     except Exception as e:
         print(f"Error in webhook receiver: {e}")
         return Response(status_code=204) # Still return 204 so Google doesn't retry
+

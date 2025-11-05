@@ -433,10 +433,9 @@ async def get_alerts(request: Request):
         alerts_ref = db.collection("alerts")
         
         # Query for alerts for this user, newest first, limit to 10
-        query = alerts_ref.where("user_id", "==", user_id)\
-                          .order_by("timestamp", direction=firestore.Query.DESCENDING)\
-                          .limit(10)
-        
+        query = alerts_ref.where(field_path="user_id", op_string="==", value=user_id)\
+                  .order_by("timestamp", direction=firestore.Query.DESCENDING)\
+                  .limit(10)
         results = query.stream()
         
         alerts = []

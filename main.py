@@ -6,7 +6,8 @@ import Levenshtein
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 import json
-from fastapi import FastAPI, Request, Response, BackgroundTasks # <-- Make sure 'Response' is imported
+import time  # <-- ADD THIS IMPORT
+from fastapi import FastAPI, Request, Response, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from google_auth_oauthlib.flow import Flow
@@ -168,7 +169,74 @@ def check_link_mismatch_and_ips(links_data):
             return {"status": "danger", "reason": f"Link-Text Mismatch: Link says it's '{link_text_domain}' but actually goes to '{link_url_domain}'."}
     return None
 
-# --- 7. Auth Helper Functions ---
+# --- 7. NEW/REFACTORED HELPER FUNCTIONS ---
+def analyze_email_message(msg: dict, all_links_to_check: set):
+    """
+    Analyzes a single email message object from the Gmail API.
+    It returns a dictionary of the email's data and adds its links to the all_links_to_check set.
+    """
+    payload = msg.get('payload', {})
+    headers = payload.get('headers', [])
+    email_data = {
+        'id': msg.get('id'), 
+        'snippet': msg.get('snippet', ''), 
+        'sender': 'Unknown', 
+        'subject': 'No Subject', 
+        'links_data': [],
+        'received_timestamp': int(msg.get('internalDate', 0)) // 1000 # Get Unix timestamp
+    }
+    
+    for header in headers:
+        if header['name'].lower() == 'from': email_data['sender'] = header['value']
+        if header['name'].lower() == 'subject': email_data['subject'] = header['value']
+        
+    body_data = get_email_body(payload)
+    email_data['links_data'] = extract_links_and_text(body_data)
+    
+    # Add this email's links to the master set for batch checking
+    for _, link_url in email_data['links_data']:
+        all_links_to_check.add(link_url)
+        
+    return email_data
+
+def perform_security_analysis(email_data: dict, api_threats: dict):
+    """
+    Performs the security checks on a pre-processed email_data dict
+    and returns the final analysis.
+    """
+    analysis = {"status": "safe", "reason": "This email passed all checks."}
+    
+    sender_name = get_sender_name(email_data['sender'])
+    sender_domain = get_domain_from_email(email_data['sender'])
+    
+    impersonation_check = check_sender_impersonation(email_data['sender'], sender_name, sender_domain)
+    if impersonation_check:
+        analysis = impersonation_check
+        
+    if analysis['status'] == 'safe':
+        link_tricks_check = check_link_mismatch_and_ips(email_data['links_data'])
+        if link_tricks_check:
+            analysis = link_tricks_check
+            
+    if analysis['status'] == 'safe':
+        for _, link_url in email_data['links_data']:
+            if link_url in api_threats:
+                analysis['status'] = 'danger'
+                analysis['reason'] = api_threats[link_url]
+                break
+                
+    if analysis['status'] == 'safe':
+        snippet_lower = email_data['snippet'].lower()
+        if "urgent" in snippet_lower and ("password" in snippet_lower or "credentials" in snippet_lower):
+            analysis['status'] = 'danger'
+            analysis['reason'] = "Suspicious Keywords: Email contains 'urgent' and 'password/credentials'."
+
+    email_data['status'] = analysis['status']
+    email_data['reason'] = analysis['reason']
+    return email_data
+
+
+# --- 8. Auth Helper Functions ---
 async def get_current_user_id(request: Request):
     session_cookie = request.cookies.get(SESSION_COOKIE_NAME)
     if not session_cookie:
@@ -192,7 +260,7 @@ def start_watch_on_gmail(creds):
         print(f"An error occurred starting the watch: {error}")
         return None
 
-# --- 8. FastAPI Endpoints (Main app) ---
+# --- 9. FastAPI Endpoints (Main app) ---
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
     with open("phishshield.html") as f:
@@ -288,13 +356,16 @@ async def get_emails(request: Request):
         return JSONResponse({'error': 'Not authenticated. Please log in.'}, status_code=401)
     if not db or not flow:
         return JSONResponse({'error': 'Server not configured.'}, status_code=500)
+
     try:
         user_doc = db.collection("users").document(user_id).get()
         if not user_doc.exists:
             return JSONResponse({'error': 'User not found in database. Please re-login.'}, status_code=401)
+        
         refresh_token = user_doc.to_dict().get('refresh_token')
         if not refresh_token:
             return JSONResponse({'error': 'No refresh token found. Please log out and log back in to re-grant permission.'}, status_code=403)
+        
         creds = Credentials(
             token=None,
             refresh_token=refresh_token,
@@ -305,54 +376,37 @@ async def get_emails(request: Request):
         )
         creds.refresh(google_requests.Request())
         service = build('gmail', 'v1', credentials=creds)
+
+        # --- REFACTORED LOGIC ---
         results = service.users().messages().list(userId='me', maxResults=20, labelIds=['INBOX']).execute()
         messages = results.get('messages', [])
         if not messages:
             return JSONResponse({'emails': []})
+
         all_links_to_check = set()
         email_details = []
+        
+        # 1. Prep all emails
         for msg_summary in messages:
             msg = service.users().messages().get(userId='me', id=msg_summary['id'], format='full').execute()
-            payload = msg.get('payload', {})
-            headers = payload.get('headers', [])
-            email_data = {'id': msg_summary['id'], 'snippet': msg.get('snippet', ''), 'sender': 'Unknown', 'subject': 'No Subject', 'links_data': []}
-            for header in headers:
-                if header['name'].lower() == 'from': email_data['sender'] = header['value']
-                if header['name'].lower() == 'subject': email_data['subject'] = header['value']
-            body_data = get_email_body(payload)
-            email_data['links_data'] = extract_links_and_text(body_data)
-            for _, link_url in email_data['links_data']:
-                all_links_to_check.add(link_url)
+            email_data = analyze_email_message(msg, all_links_to_check)
             email_details.append(email_data)
+
+        # 2. Run batched API check
         print(f"Checking {len(all_links_to_check)} unique links against external APIs...")
         api_threats = check_external_apis(list(all_links_to_check))
         print(f"Found {len(api_threats)} threats from APIs.")
+        
+        # 3. Perform final analysis
         analyzed_emails = []
-        for email in email_details:
-            analysis = {"status": "safe", "reason": "This email passed all checks."}
-            sender_name = get_sender_name(email['sender'])
-            sender_domain = get_domain_from_email(email['sender'])
-            impersonation_check = check_sender_impersonation(email['sender'], sender_name, sender_domain)
-            if impersonation_check:
-                analysis = impersonation_check
-            if analysis['status'] == 'safe':
-                link_tricks_check = check_link_mismatch_and_ips(email['links_data'])
-                if link_tricks_check:
-                    analysis = link_tricks_check
-            if analysis['status'] == 'safe':
-                for _, link_url in email['links_data']:
-                    if link_url in api_threats:
-                        analysis['status'] = 'danger'
-                        analysis['reason'] = api_threats[link_url]
-                        break
-            if analysis['status'] == 'safe':
-                 if "urgent" in email['snippet'].lower() and "password" in email['snippet'].lower():
-                    analysis['status'] = 'danger'
-                    analysis['reason'] = "Suspicious Keywords: Email contains 'urgent' and 'password'."
-            email['status'] = analysis['status']
-            email['reason'] = analysis['reason']
-            analyzed_emails.append(email)
+        for email_data in email_details:
+            analyzed_email = perform_security_analysis(email_data, api_threats)
+            analyzed_emails.append(analyzed_email)
+            
+        # --- END OF REFACTORED LOGIC ---
+
         return JSONResponse({'emails': analyzed_emails})
+
     except HttpError as error:
         print(f'An error occurred: {error}')
         if error.resp.status in [401, 403]:
@@ -365,8 +419,8 @@ async def get_emails(request: Request):
         return JSONResponse({'error': f'An error occurred: {e}'}, status_code=500)
 
 
-# --- 9. BRAND NEW: The Webhook "Ears" Endpoint ---
-# --- THIS IS THE FINAL FIX ---
+# --- 10. NEW: The Webhook "Ears" Endpoint ---
+
 # This is the "heavy lifting" function that runs in the background.
 async def process_webhook(payload: dict):
     try:
@@ -381,13 +435,118 @@ async def process_webhook(payload: dict):
         email_address = message_json.get('emailAddress')
         history_id = message_json.get('historyId')
 
-        print("--- !!! NEW EMAIL PING RECEIVED !!! ---")
-        print(f"Email: {email_address}")
-        print(f"History ID: {history_id}")
-        print("------------------------------------------")
+        if not email_address or not history_id:
+            print("Webhook payload missing email or historyId.")
+            return
+
+        print(f"--- !!! NEW EMAIL PING RECEIVED for {email_address} (History ID: {history_id}) !!! ---")
+
+        # 1. Find user in Firestore by email
+        if not db or not flow:
+            print("Firestore (db) or OAuth (flow) not initialized. Cannot process webhook.")
+            return
         
+        users_ref = db.collection("users")
+        query = users_ref.where("email", "==", email_address).limit(1).stream()
+        user_doc = next(query, None)
+        
+        if not user_doc:
+            print(f"Webhook Error: No user found for email: {email_address}")
+            return
+        
+        user_data = user_doc.to_dict()
+        refresh_token = user_data.get('refresh_token')
+        user_id = user_doc.id
+        
+        if not refresh_token:
+            print(f"Webhook Error: User {user_id} has no refresh token.")
+            return
+
+        # 2. Get new credentials using refresh token
+        creds = Credentials(
+            token=None,
+            refresh_token=refresh_token,
+            token_uri=flow.client_config['token_uri'],
+            client_id=flow.client_config['client_id'],
+            client_secret=flow.client_config['client_secret'],
+            scopes=SCOPES
+        )
+        creds.refresh(google_requests.Request())
+        service = build('gmail', 'v1', credentials=creds)
+
+        # 3. Get new messages since the last historyId
+        history = service.users().history().list(userId='me', startHistoryId=history_id).execute()
+        
+        new_messages_info = []
+        if 'history' in history:
+            for history_record in history.get('history', []):
+                if 'messagesAdded' in history_record:
+                    new_messages_info.extend(history_record['messagesAdded'])
+
+        if not new_messages_info:
+            print("No new messages found for this history event.")
+            return
+
+        print(f"Found {len(new_messages_info)} new message(s) to analyze.")
+
+        all_links_to_check = set()
+        email_data_list = []
+
+        # 4. Fetch and prep each new email for analysis
+        for msg_info in new_messages_info:
+            msg_id = msg_info['message']['id']
+            # Only process messages that are new to the INBOX
+            if 'INBOX' not in msg_info['message'].get('labelIds', []):
+                continue
+                
+            try:
+                msg = service.users().messages().get(userId='me', id=msg_id, format='full').execute()
+                email_data = analyze_email_message(msg, all_links_to_check) # Use the refactored function
+                email_data_list.append(email_data)
+            except HttpError as e:
+                print(f"Error fetching message {msg_id}: {e}")
+                continue # Skip this message
+
+        if not email_data_list:
+            print("No new INBOX messages to process.")
+            return
+
+        # 5. Run batched API check
+        api_threats = check_external_apis(list(all_links_to_check))
+
+        # 6. Perform final analysis and save alerts
+        for email_data in email_data_list:
+            analyzed_email = perform_security_analysis(email_data, api_threats) # Use refactored function
+            
+            if analyzed_email['status'] == 'danger':
+                print(f"!!! DANGER DETECTED for {user_id}: {analyzed_email['subject']} !!!")
+                
+                # 7. Save to a new "alerts" collection in Firestore
+                alert_data = {
+                    'user_id': user_id,
+                    'email': email_address,
+                    'email_id': analyzed_email['id'],
+                    'sender': analyzed_email['sender'],
+                    'subject': analyzed_email['subject'],
+                    'reason': analyzed_email['reason'],
+                    'status': 'new', # To track if the user has 'seen' it
+                    'timestamp': analyzed_email.get('received_timestamp', int(time.time()))
+                }
+                db.collection("alerts").add(alert_data)
+
+        print(f"--- Finished processing webhook for {email_address} ---")
+
+    except HttpError as error:
+        print(f"Webhook HttpError: {error}")
+        if error.resp.status in [401, 403]:
+            print(f"Auth error for user {email_address}. Refresh token may be revoked.")
+            # Optional: Update user doc to reflect bad token
+            # db.collection("users").document(user_id).set({'token_invalid': True}, merge=True)
     except Exception as e:
-        print(f"Error processing webhook: {e}")
+        print(f"CRITICAL Error in process_webhook: {e}")
+        import traceback
+        traceback.print_exc()
+
 
 @app.post("/api/gmail-webhook")
 async def gmail_webhook_receiver(request: Request, tasks: BackgroundTasks):
@@ -400,14 +559,9 @@ async def gmail_webhook_receiver(request: Request, tasks: BackgroundTasks):
         payload = await request.json()
         tasks.add_task(process_webhook, payload)
         
-        # --- THE FIX ---
-        # Before: return JSONResponse(status_code=204) (This is WRONG)
-        # After: return Response(status_code=204) (This is CORRECT)
-        # We must return a *blank* Response, not a JSONResponse
+        # This is correct: A blank 204 response
         return Response(status_code=204)
         
     except Exception as e:
         print(f"Error in webhook receiver: {e}")
-        # --- THE FIX ---
-        # Same fix here. Must be a blank Response.
-        return Response(status_code=204)
+        return Response(status_code=204) # Still return 204 so Google doesn't retry
